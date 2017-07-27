@@ -19,7 +19,6 @@
 </head>
 <body>
   <h1>Hello world</h1>
-   <?php THIS-IS-ERROR();?> 
   <ul><?php foreach($INFO as $e){echo '<li>', $e, '</li>';}?></ul>
 </body>
 </html>
