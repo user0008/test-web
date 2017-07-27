@@ -1,0 +1,208 @@
+{
+  "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "numberOfServers": {
+      "type": "string",
+      "defaultValue": "3"
+    },
+    "machineImageURI": {
+      "type": "string",
+      "defaultValue": "/subscriptions/50838fe3-59fa-4686-affc-34a1ba8df912/resourceGroups/user0008-webapp-images-rg/providers/Microsoft.Compute/images/webapp-websv-image"
+    },
+    "sshUser": {
+      "type": "string",
+      "defaultValue": "webapusr"
+    },
+    "sshPublicKey": {
+      "type": "string",
+      "defaultValue": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDAGiI5rOFdMEjyEvD653KL5wvYWciew09nLO9mG8pK2DrYdseylwjpKKSreVQA8EiBW8QZSW1WwDcLwGr4+PNBDMp5V7EJ6AWDUDPcuTw+AmAutfhZ9E3VmCjEcWUdts/eWXDQEERz0IiMLiECe3/nyLaswFb+/J8t5ANEY90zwdcpRUUEDRqFPI1dwCiBFWTzR+brTb/spyrkOpUe5Nyqi39Pion2OaYpFCY6Fa9BPgiGvukZZXXccy3MO3HGbZVJ+VnXdU8JgqrMjYcTDN7iMfA584sKa9MCRhUF3PQOrIW7WxS1aRTycmLXXPg5gNgkmxjV7ncKg3ME84XO9olZ devops"
+    }
+  },
+  "variables": { "VMCopies": "[int(parameters('numberOfServers'))]" },
+  "resources": [
+    {
+      "name": "webapp-websv-nsg",
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2016-09-01",
+      "location": "japaneast",
+      "properties": {
+        "securityRules": [{
+          "name": "webapp-websv-nsg-http",
+          "properties": {
+            "protocol": "Tcp",
+            "sourcePortRange": "*",
+            "destinationPortRange": "80",
+            "sourceAddressPrefix": "*",
+            "destinationAddressPrefix": "*",
+            "access": "Allow",
+            "priority": 1001,
+            "direction": "Inbound"
+          }
+        }]
+      }
+    },
+    {
+      "name": "webapp-pip",
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2016-09-01",
+      "location": "japaneast",
+      "properties": {
+        "publicIPAllocationMethod": "Dynamic"
+      }
+    },
+    {
+      "name": "webapp-vnet",
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2016-09-01",
+      "location": "japaneast",
+      "properties": {
+        "addressSpace": { "addressPrefixes": [ "192.168.1.0/24" ] },
+        "subnets": [{
+          "name": "webapp-vnet-sub",
+          "properties": { "addressPrefix": "192.168.1.0/24" }
+        }]
+      }
+    },
+    {
+      "name": "webapp-websv-as",
+      "type": "Microsoft.Compute/availabilitySets",
+      "apiVersion": "2016-04-30-preview",
+      "location": "japaneast",
+      "sku": { "name": "Aligned" },
+      "properties": {
+        "managed": true,
+        "platformUpdateDomainCount": 5,
+        "platformFaultDomainCount": 2
+      }
+    },
+    {
+      "name": "webapp-websv-lb",
+      "type": "Microsoft.Network/loadBalancers",
+      "apiVersion": "2016-09-01",
+      "location": "japaneast",
+      "properties": {
+        "frontendIPConfigurations": [{
+          "name": "webapp-websv-lb-front",
+          "properties": {
+            "publicIPAddress": {
+              "id": "[resourceId('Microsoft.Network/publicIPAddresses','webapp-pip')]",
+              "properties": {
+                "publicIPAllocationMethod": "Dynamic",
+                "publicIPAddressVersion": "IPv4"
+              }
+            }
+          }
+        }],
+        "backendAddressPools": [{ "name": "webapp-websv-lb-backpool" }],
+        "loadBalancingRules": [{
+          "name": "webapp-websv-lb-rule",
+          "properties": {
+            "frontendIPConfiguration": {
+              "id": "[concat(resourceId('Microsoft.Network/loadBalancers','webapp-websv-lb'),'/frontendIPConfigurations/webapp-websv-lb-front')]"
+            },
+            "backendAddressPool": {
+              "id": "[concat(resourceId('Microsoft.Network/loadBalancers','webapp-websv-lb'),'/backendAddressPools/webapp-websv-lb-backpool')]"
+            },
+            "probe": {
+              "id": "[concat(resourceId('Microsoft.Network/loadBalancers','webapp-websv-lb'),'/probes/webapp-websv-lb-probe')]"
+            },
+            "protocol": "Tcp",
+            "frontendPort": 80,
+            "backendPort": 80
+          }
+        }],
+        "probes": [{
+          "name": "webapp-websv-lb-probe",
+          "properties": { "protocol": "Http", "port": 80, "requestPath": "/?lbprobe=1" }
+        }]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/publicIPAddresses','webapp-pip')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "name": "[concat('webapp-websv',copyIndex(1),'-nic')]",
+      "apiVersion": "2016-09-01",
+      "location": "japaneast",
+      "copy": {
+        "name": "webapp-websv-nic-copy",
+        "count": "[variables('VMCopies')]"
+      },
+      "properties": {
+        "ipConfigurations": [{
+          "name": "ipconfig1",
+          "properties": {
+            "privateIPAddress": "[concat('192.168.1.',string(add(10,copyIndex(1))))]",
+            "privateIPAllocationMethod": "Static",
+            "subnet": {
+              "id": "[concat(resourceId('Microsoft.Network/virtualNetworks','webapp-vnet'),'/subnets/webapp-vnet-sub')]"
+            },
+            "loadBalancerBackendAddressPools": [{
+              "id": "[concat(resourceId('Microsoft.Network/loadBalancers','webapp-websv-lb'),'/backendAddressPools/webapp-websv-lb-backpool')]"
+            }]
+          }
+        }],
+        "networkSecurityGroup": {
+          "id": "[resourceId('Microsoft.Network/networkSecurityGroups','webapp-websv-nsg')]"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks','webapp-vnet')]",
+        "[resourceId('Microsoft.Network/loadBalancers','webapp-websv-lb')]",
+        "[resourceId('Microsoft.Network/networkSecurityGroups','webapp-websv-nsg')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines",
+      "name": "[concat('webapp-websv',copyIndex(1))]",
+      "apiVersion": "2016-04-30-preview",
+      "location": "japaneast",
+      "copy": {
+        "name": "webapp-websv-copy",
+        "count": "[variables('VMCopies')]"
+      },
+      "properties": {
+        "availabilitySet": {
+          "id": "[resourceId('Microsoft.Compute/availabilitySets','webapp-websv-as')]"
+        },
+        "hardwareProfile": { "vmSize": "Standard_F1" },
+        "storageProfile": {
+          "imageReference": { "id": "[parameters('machineImageURI')]" },
+          "osDisk": {
+            "osType": "Linux",
+            "name": "[concat('webapp_websv_osdisk_',uniqueString(resourceGroup().id),'_',copyIndex(1))]",
+            "createOption": "FromImage",
+            "caching": "ReadWrite",
+            "managedDisk": { "storageAccountType": "Standard_LRS" },
+            "diskSizeGB": 31
+          },
+          "dataDisks": []
+        },
+        "osProfile": {
+          "computerName": "[concat('websv',copyIndex(1))]",
+          "adminUsername": "[parameters('sshUser')]",
+          "linuxConfiguration": {
+            "disablePasswordAuthentication": true,
+            "ssh": {
+              "publicKeys": [{
+                "path": "[concat('/home/',parameters('sshUser'),'/.ssh/authorized_keys')]",
+                "keyData": "[parameters('sshPublicKey')]"
+              }]
+            }
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [{
+            "id": "[resourceId('Microsoft.Network/networkInterfaces',concat('webapp-websv',copyIndex(1),'-nic'))]"
+          }]
+        }
+      },
+      "dependsOn": [
+        "webapp-websv-nic-copy",
+        "[resourceId('Microsoft.Compute/availabilitySets','webapp-websv-as')]"
+      ]
+    }
+  ]
+}
