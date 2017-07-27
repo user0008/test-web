@@ -17,7 +17,6 @@
     body{font-size:250%;font-family:monospace;color:<?php echo $FGS;?>;background:<?php echo $BGS;?>;}
   </style>
 </head>
-  <?php THIS-IS-ERROR();?> 
 <body>
   <h1>Hello world</h1>
   <ul><?php foreach($INFO as $e){echo '<li>', $e, '</li>';}?></ul>
